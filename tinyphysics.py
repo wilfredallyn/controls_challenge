@@ -206,7 +206,11 @@ class TinyPhysicsSimulator:
 
     if self.debug:
       plt.ioff()
-      plt.show()
+      # Save the debug plot to a file instead of showing it
+      output_filename = f"debug_plot_{Path(self.data_path).stem}.png"
+      plt.savefig(output_filename, dpi=300, bbox_inches='tight')
+      plt.close()
+      print(f"Debug plot saved to: {output_filename}")
     return self.compute_cost()
 
 
@@ -262,4 +266,8 @@ if __name__ == "__main__":
     plt.ylabel('Frequency')
     plt.title('costs Distribution')
     plt.legend()
-    plt.show()
+    # Save the cost distribution plot to a file instead of showing it
+    output_filename = f"costs_distribution_{data_path.stem}.png"
+    plt.savefig(output_filename, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Cost distribution plot saved to: {output_filename}")
