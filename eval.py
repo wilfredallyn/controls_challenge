@@ -106,6 +106,7 @@ if __name__ == "__main__":
   parser.add_argument("--num_segs", type=int, default=100)
   parser.add_argument("--test_controller", default='pid', choices=available_controllers)
   parser.add_argument("--baseline_controller", default='pid', choices=available_controllers)
+  parser.add_argument("--sac_model", type=str, help="SAC model name for sac controller")
   args = parser.parse_args()
 
   data_path = Path(args.data_path)
