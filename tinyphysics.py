@@ -218,9 +218,15 @@ def get_available_controllers():
   return [f.stem for f in Path('controllers').iterdir() if f.is_file() and f.suffix == '.py' and f.stem != '__init__']
 
 
-def run_rollout(data_path, controller_type, model_path, debug=False):
+def run_rollout(data_path, controller_type, model_path, debug=False, sac_model=None):
   tinyphysicsmodel = TinyPhysicsModel(model_path, debug=debug)
-  controller = importlib.import_module(f'controllers.{controller_type}').Controller()
+
+  # Pass sac_model parameter to SAC controller if provided
+  if controller_type == 'sac' and sac_model is not None:
+    controller = importlib.import_module(f'controllers.{controller_type}').Controller(experiment_name=sac_model)
+  else:
+    controller = importlib.import_module(f'controllers.{controller_type}').Controller()
+
   sim = TinyPhysicsSimulator(tinyphysicsmodel, str(data_path), controller=controller, debug=debug)
   return sim.rollout(), sim.target_lataccel_history, sim.current_lataccel_history
 

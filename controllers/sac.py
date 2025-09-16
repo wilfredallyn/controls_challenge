@@ -16,10 +16,6 @@ from pathlib import Path
 sac_drive_path = Path(__file__).parent.parent.parent / "sac-drive"
 sys.path.insert(0, str(sac_drive_path))
 
-try:
-    import json
-
-
 def find_experiment_by_name(sac_drive_path, experiment_name=None):
     """Find experiment by name or return the latest experiment."""
     experiments_dir = sac_drive_path / "experiments"
@@ -60,6 +56,8 @@ def find_experiment_by_name(sac_drive_path, experiment_name=None):
         return str(latest_checkpoint), str(config_path)
 
 
+try:
+    import json
     from stable_baselines3 import SAC
     from config.training_config import TrainingConfig
     from src.features.state_processor import StateProcessor
@@ -110,6 +108,11 @@ class Controller(BaseController):
         try:
             with open(config_path, 'r') as f:
                 config_dict = json.load(f)
+
+            # Fix JSON list-to-tuple conversion for framework_steer_range
+            if 'framework_steer_range' in config_dict and isinstance(config_dict['framework_steer_range'], list):
+                config_dict['framework_steer_range'] = tuple(config_dict['framework_steer_range'])
+
             self.config = TrainingConfig.from_dict(config_dict)
             print(f"Config loaded - Reward type: {self.config.reward_type}")
         except Exception as e:
@@ -120,23 +123,26 @@ class Controller(BaseController):
         # Load the trained SAC model
         try:
             self.model = SAC.load(model_path)
-            print("Dense Reward SAC model loaded successfully")
+            reward_type = getattr(self.config, 'reward_type', 'unknown')
+            print(f"SAC model loaded successfully (reward type: {reward_type})")
         except Exception as e:
             print(f"Error loading SAC model: {e}")
             raise
 
         # Initialize state processor with same configuration as training
         try:
-            self.state_processor = StateProcessor(
-                history_length=self.config.history_length,
-                future_plan_length=self.config.future_plan_length,
-                normalize=self.config.normalize_states,
-                mode="mvp"
+            from src.features.state_processor import StateProcessorConfig
+
+            # Create config matching training configuration
+            state_config = StateProcessorConfig(
+                history_length=getattr(self.config, 'history_length', 10),
+                future_plan_length=getattr(self.config, 'future_plan_length', 50),
+                normalize=getattr(self.config, 'normalize_states', True),
+                feature_mode="mvp"
             )
 
-            # Load normalization statistics
-            self.state_processor.load_statistics()
-            print(f"State processor initialized: {self.state_processor.expected_dim}D")
+            self.state_processor = StateProcessor(config=state_config)
+            print(f"State processor initialized: {self.state_processor.get_state_dim()}D")
 
         except Exception as e:
             print(f"Warning: State processor initialization failed: {e}")
