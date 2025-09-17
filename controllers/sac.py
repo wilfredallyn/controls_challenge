@@ -152,6 +152,9 @@ class Controller(BaseController):
         # Track previous steering for continuity
         self.prev_steer = 0.0
 
+        # Reset state processor to ensure consistent initial state
+        self.reset_state()
+
     def update(self, target_lataccel, current_lataccel, state, future_plan):
         """
         Update the controller and return the steering action.
@@ -216,3 +219,17 @@ class Controller(BaseController):
             fallback_action = np.clip(error * 0.3, -2.0, 2.0)
             self.prev_steer = fallback_action
             return fallback_action
+
+    def reset_state(self):
+        """
+        Reset controller and state processor to initial state.
+
+        This ensures consistent behavior between rollouts by clearing
+        any accumulated history or internal state.
+        """
+        # Reset state processor history
+        if self.state_processor is not None and hasattr(self.state_processor, 'reset'):
+            self.state_processor.reset()
+
+        # Reset controller internal state
+        self.prev_steer = 0.0
