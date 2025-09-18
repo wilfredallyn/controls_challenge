@@ -218,7 +218,7 @@ def get_available_controllers():
   return [f.stem for f in Path('controllers').iterdir() if f.is_file() and f.suffix == '.py' and f.stem != '__init__']
 
 
-def run_rollout(data_path, controller_type, model_path, debug=False, sac_model=None):
+def run_rollout(data_path, controller_type, model_path, debug=False, sac_model=None, detailed_metrics=False):
   tinyphysicsmodel = TinyPhysicsModel(model_path, debug=debug)
 
   # Pass sac_model parameter to SAC controller if provided
@@ -228,7 +228,20 @@ def run_rollout(data_path, controller_type, model_path, debug=False, sac_model=N
     controller = importlib.import_module(f'controllers.{controller_type}').Controller()
 
   sim = TinyPhysicsSimulator(tinyphysicsmodel, str(data_path), controller=controller, debug=debug)
-  return sim.rollout(), sim.target_lataccel_history, sim.current_lataccel_history
+  cost_dict = sim.rollout()
+
+  if detailed_metrics:
+    # Return enhanced data for detailed analysis
+    return {
+      'cost_dict': cost_dict,
+      'target_lataccel_history': sim.target_lataccel_history,
+      'current_lataccel_history': sim.current_lataccel_history,
+      'action_history': sim.action_history,
+      'state_history': sim.state_history
+    }
+  else:
+    # Maintain backward compatibility
+    return cost_dict, sim.target_lataccel_history, sim.current_lataccel_history
 
 
 def download_dataset():
