@@ -1,235 +1,165 @@
 #!/usr/bin/env python3
 """
-Dense Reward SAC Controller for controls_challenge evaluation.
+SAC Controller for controls_challenge evaluation using SACController.
 
-This controller loads the trained dense reward SAC model and provides
-the BaseController interface for controls_challenge evaluation.
+This controller uses the SACController class from sac-drive which includes
+optimized post-processing (smoothing) for improved performance.
 """
 
 from . import BaseController
-import os
 import sys
-import numpy as np
 from pathlib import Path
 
 # Add sac-drive to path
 sac_drive_path = Path(__file__).parent.parent.parent / "sac-drive"
 sys.path.insert(0, str(sac_drive_path))
 
-def find_experiment_by_name(sac_drive_path, experiment_name=None):
-    """Find experiment by name or return the latest experiment."""
+
+def find_experiment_checkpoint(sac_drive_path, experiment_name=None, checkpoint_step=None):
+    """
+    Find experiment checkpoint by name and optional step.
+
+    Args:
+        sac_drive_path: Path to sac-drive project root
+        experiment_name: Optional experiment name to load
+        checkpoint_step: Optional specific checkpoint step number
+
+    Returns:
+        Path to checkpoint file, or None if not found
+    """
     experiments_dir = sac_drive_path / "experiments"
     if not experiments_dir.exists():
-        return None, None
+        return None
 
     if experiment_name:
-        # Look for specific experiment
         exp_dir = experiments_dir / experiment_name
         if exp_dir.exists() and exp_dir.is_dir():
-            config_path = exp_dir / "config.json"
             checkpoints_dir = exp_dir / "checkpoints"
-            if config_path.exists() and checkpoints_dir.exists():
-                checkpoints = list(checkpoints_dir.glob("checkpoint_step_*.zip"))
-                if checkpoints:
-                    latest_checkpoint = max(checkpoints)
-                    return str(latest_checkpoint), str(config_path)
-        return None, None
+            if checkpoints_dir.exists():
+                if checkpoint_step:
+                    # Look for specific checkpoint
+                    checkpoint = checkpoints_dir / f"checkpoint_step_{checkpoint_step}.zip"
+                    if checkpoint.exists():
+                        return str(checkpoint)
+                else:
+                    # Find latest checkpoint
+                    checkpoints = list(checkpoints_dir.glob("checkpoint_step_*.zip"))
+                    if checkpoints:
+                        latest = max(checkpoints, key=lambda p: int(p.stem.split('_')[-1]))
+                        return str(latest)
     else:
         # Find latest experiment with checkpoints
         valid_experiments = []
         for exp_dir in experiments_dir.iterdir():
             if exp_dir.is_dir():
-                config_path = exp_dir / "config.json"
                 checkpoints_dir = exp_dir / "checkpoints"
-                if config_path.exists() and checkpoints_dir.exists():
+                if checkpoints_dir.exists():
                     checkpoints = list(checkpoints_dir.glob("checkpoint_step_*.zip"))
                     if checkpoints:
-                        latest_checkpoint = max(checkpoints)
-                        valid_experiments.append((exp_dir.stat().st_mtime, exp_dir, latest_checkpoint))
+                        latest_checkpoint = max(checkpoints, key=lambda p: int(p.stem.split('_')[-1]))
+                        valid_experiments.append((exp_dir.stat().st_mtime, latest_checkpoint))
 
-        if not valid_experiments:
-            return None, None
+        if valid_experiments:
+            # Return checkpoint from most recent experiment
+            _, checkpoint = max(valid_experiments)
+            return str(checkpoint)
 
-        # Return the most recent experiment
-        _, exp_dir, latest_checkpoint = max(valid_experiments)
-        config_path = exp_dir / "config.json"
-        return str(latest_checkpoint), str(config_path)
+    return None
 
 
 try:
-    import json
-    from stable_baselines3 import SAC
-    from config.training_config import TrainingConfig
-    from src.features.state_processor import StateProcessor
+    from src.controller import SACController
     SAC_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: Could not import SAC dependencies: {e}")
+    print(f"Warning: Could not import SACController: {e}")
     SAC_AVAILABLE = False
 
 
 class Controller(BaseController):
     """
-    SAC controller for controls_challenge evaluation.
+    SAC controller wrapper using SACController with optimized smoothing.
 
-    Dynamically loads any trained SAC model for lateral control.
+    This implementation uses the SACController class which includes:
+    - Sophisticated state processing
+    - SAC model prediction
+    - Optimized action smoothing (default: 0.95)
+    - Action clipping to valid range
     """
 
-    def __init__(self, model_path=None, experiment_name=None):
+    def __init__(self, model_path=None, experiment_name=None, smoothing_factor=None):
         """
         Initialize the SAC controller.
 
         Args:
-            model_path: Optional direct path to model file. If None, will discover automatically.
-            experiment_name: Optional experiment name to load. If None, loads latest experiment.
+            model_path: Optional direct path to model checkpoint file.
+                       If None, will auto-discover from experiment_name or find latest.
+            experiment_name: Optional experiment name to load.
+                           If None, loads latest experiment with checkpoints.
+            smoothing_factor: Optional smoothing factor override (0.0-1.0).
+                            If None, uses SACController default (0.95).
+
+        Raises:
+            ImportError: If SAC dependencies not available
+            FileNotFoundError: If no valid checkpoint found
         """
-
         if not SAC_AVAILABLE:
-            raise ImportError("SAC controller dependencies not available")
+            raise ImportError("SACController dependencies not available")
 
-        # Discover model path dynamically
+        # Discover model path if not provided
         if model_path is None:
-            discovered_model_path, discovered_config_path = find_experiment_by_name(sac_drive_path, experiment_name)
-            if discovered_model_path is None:
+            discovered_path = find_experiment_checkpoint(sac_drive_path, experiment_name)
+            if discovered_path is None:
                 if experiment_name:
-                    raise FileNotFoundError(f"Experiment '{experiment_name}' not found or has no checkpoints.")
+                    raise FileNotFoundError(
+                        f"Experiment '{experiment_name}' not found or has no checkpoints."
+                    )
                 else:
-                    raise FileNotFoundError("No experiments found with checkpoints. Please train a model first.")
-            model_path = discovered_model_path
-            config_path = discovered_config_path
-        else:
-            # If model_path is provided, derive config_path
-            model_dir = Path(model_path).parent.parent
-            config_path = str(model_dir / "config.json")
+                    raise FileNotFoundError(
+                        "No experiments found with checkpoints. Please train a model first."
+                    )
+            model_path = discovered_path
 
         experiment_info = f" (experiment: {experiment_name})" if experiment_name else ""
-        print(f"Loading SAC model from: {model_path}{experiment_info}")
+        print(f"Loading SAC controller from: {model_path}{experiment_info}")
 
-        # Load configuration
-        try:
-            with open(config_path, 'r') as f:
-                config_dict = json.load(f)
+        # Initialize SACController with optimized smoothing
+        kwargs = {"model_path": model_path}
+        if smoothing_factor is not None:
+            kwargs["smoothing_factor"] = smoothing_factor
+            print(f"Using custom smoothing_factor: {smoothing_factor}")
+        else:
+            print("Using default smoothing_factor (0.95)")
 
-            # Fix JSON list-to-tuple conversion for framework_steer_range
-            if 'framework_steer_range' in config_dict and isinstance(config_dict['framework_steer_range'], list):
-                config_dict['framework_steer_range'] = tuple(config_dict['framework_steer_range'])
-
-            self.config = TrainingConfig.from_dict(config_dict)
-            print(f"Config loaded - Reward type: {self.config.reward_type}")
-        except Exception as e:
-            print(f"Warning: Could not load config: {e}")
-            # Use defaults
-            self.config = TrainingConfig()
-
-        # Load the trained SAC model
-        try:
-            self.model = SAC.load(model_path)
-            reward_type = getattr(self.config, 'reward_type', 'unknown')
-            print(f"SAC model loaded successfully (reward type: {reward_type})")
-        except Exception as e:
-            print(f"Error loading SAC model: {e}")
-            raise
-
-        # Initialize state processor with same configuration as training
-        try:
-            from src.features.state_processor import StateProcessorConfig
-
-            # Create config matching training configuration
-            state_config = StateProcessorConfig(
-                history_length=getattr(self.config, 'history_length', 10),
-                future_plan_length=getattr(self.config, 'future_plan_length', 50),
-                normalize=getattr(self.config, 'normalize_states', True),
-                feature_mode="mvp"
-            )
-
-            self.state_processor = StateProcessor(config=state_config)
-            print(f"State processor initialized: {self.state_processor.get_state_dim()}D")
-
-        except Exception as e:
-            print(f"Warning: State processor initialization failed: {e}")
-            # Fallback to basic processing
-            self.state_processor = None
-
-        # Track previous steering for continuity
-        self.prev_steer = 0.0
-
-        # Reset state processor to ensure consistent initial state
-        self.reset_state()
+        self.sac_controller = SACController(**kwargs)
 
     def update(self, target_lataccel, current_lataccel, state, future_plan):
         """
         Update the controller and return the steering action.
 
+        This delegates to SACController.update() which applies the full
+        post-processing pipeline including optimized smoothing.
+
         Args:
             target_lataccel: The target lateral acceleration
             current_lataccel: The current lateral acceleration
-            state: The current state of the vehicle (named tuple with v_ego, a_ego, roll_lataccel)
+            state: The current state of the vehicle (namedtuple)
             future_plan: The future plan for the next N frames
 
         Returns:
-            float: The steering action to apply
+            float: The steering action to apply [-2.0, 2.0]
         """
-        try:
-            if self.state_processor is not None:
-                # Use the same state processing as training
-                processed_state = self.state_processor.process_state(
-                    target_lataccel=target_lataccel,
-                    current_lataccel=current_lataccel,
-                    state=state,
-                    future_plan=future_plan
-                )
-            else:
-                # Fallback: create simple state vector
-                # Basic state: [target_lataccel, current_lataccel, v_ego, a_ego, roll_lataccel, prev_steer]
-                processed_state = np.array([
-                    target_lataccel,
-                    current_lataccel,
-                    getattr(state, 'v_ego', 0.0),
-                    getattr(state, 'a_ego', 0.0),
-                    getattr(state, 'roll_lataccel', 0.0),
-                    self.prev_steer
-                ])
-
-                # Pad to expected dimension if needed
-                if len(processed_state) < 20:
-                    processed_state = np.pad(processed_state, (0, 20 - len(processed_state)))
-                elif len(processed_state) > 20:
-                    processed_state = processed_state[:20]
-
-            # Get action from SAC model (deterministic)
-            action, _ = self.model.predict(processed_state, deterministic=True)
-
-            # Extract scalar action
-            if hasattr(action, '__len__') and len(action) > 0:
-                steer_action = float(action[0])
-            else:
-                steer_action = float(action)
-
-            # Clip to valid steering range
-            steer_action = np.clip(steer_action, -2.0, 2.0)
-
-            # Update previous steering for next iteration
-            self.prev_steer = steer_action
-
-            return steer_action
-
-        except Exception as e:
-            print(f"Warning: SAC controller update failed: {e}")
-            # Fallback to simple proportional control
-            error = target_lataccel - current_lataccel
-            fallback_action = np.clip(error * 0.3, -2.0, 2.0)
-            self.prev_steer = fallback_action
-            return fallback_action
+        return self.sac_controller.update(
+            target_lataccel=target_lataccel,
+            current_lataccel=current_lataccel,
+            state=state,
+            future_plan=future_plan
+        )
 
     def reset_state(self):
         """
         Reset controller and state processor to initial state.
 
-        This ensures consistent behavior between rollouts by clearing
-        any accumulated history or internal state.
+        Ensures consistent behavior between rollouts by clearing
+        accumulated history and internal state.
         """
-        # Reset state processor history
-        if self.state_processor is not None and hasattr(self.state_processor, 'reset'):
-            self.state_processor.reset()
-
-        # Reset controller internal state
-        self.prev_steer = 0.0
+        self.sac_controller.reset()
