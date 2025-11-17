@@ -3,7 +3,7 @@
 SAC Controller for controls_challenge evaluation using SACController.
 
 This controller uses the SACController class from sac-drive which includes
-optimized post-processing (smoothing) for improved performance.
+optimized post-processing (smoothing + rate limiting) for improved performance.
 """
 
 from . import BaseController
@@ -77,16 +77,23 @@ except ImportError as e:
 
 class Controller(BaseController):
     """
-    SAC controller wrapper using SACController with optimized smoothing.
+    SAC controller wrapper using SACController with optimized post-processing.
 
     This implementation uses the SACController class which includes:
     - Sophisticated state processing
     - SAC model prediction
     - Optimized action smoothing (default: 0.95)
+    - Action rate limiting (default: 1.17)
     - Action clipping to valid range
     """
 
-    def __init__(self, model_path=None, experiment_name=None, smoothing_factor=None):
+    def __init__(
+        self,
+        model_path=None,
+        experiment_name=None,
+        smoothing_factor=None,
+        max_action_change=None,
+    ):
         """
         Initialize the SAC controller.
 
@@ -97,6 +104,8 @@ class Controller(BaseController):
                            If None, loads latest experiment with checkpoints.
             smoothing_factor: Optional smoothing factor override (0.0-1.0).
                             If None, uses SACController default (0.95).
+            max_action_change: Optional max action change per timestep (rate limiting).
+                             If None, uses SACController default (1.17).
 
         Raises:
             ImportError: If SAC dependencies not available
@@ -122,13 +131,19 @@ class Controller(BaseController):
         experiment_info = f" (experiment: {experiment_name})" if experiment_name else ""
         print(f"Loading SAC controller from: {model_path}{experiment_info}")
 
-        # Initialize SACController with optimized smoothing
+        # Initialize SACController with optimized post-processing
         kwargs = {"model_path": model_path}
         if smoothing_factor is not None:
             kwargs["smoothing_factor"] = smoothing_factor
             print(f"Using custom smoothing_factor: {smoothing_factor}")
         else:
             print("Using default smoothing_factor (0.95)")
+
+        if max_action_change is not None:
+            kwargs["max_action_change"] = max_action_change
+            print(f"Using custom max_action_change: {max_action_change}")
+        else:
+            print("Using default max_action_change (1.17)")
 
         self.sac_controller = SACController(**kwargs)
 
