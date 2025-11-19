@@ -22,11 +22,14 @@ def find_experiment_checkpoint(sac_drive_path, experiment_name=None, checkpoint_
     Args:
         sac_drive_path: Path to sac-drive project root
         experiment_name: Optional experiment name to load
-        checkpoint_step: Optional specific checkpoint step number
+        checkpoint_step: Optional specific checkpoint step number.
+                        If None, tries to use best checkpoint from evaluation results.
 
     Returns:
         Path to checkpoint file, or None if not found
     """
+    import json
+
     experiments_dir = sac_drive_path / "experiments"
     if not experiments_dir.exists():
         return None
@@ -36,6 +39,19 @@ def find_experiment_checkpoint(sac_drive_path, experiment_name=None, checkpoint_
         if exp_dir.exists() and exp_dir.is_dir():
             checkpoints_dir = exp_dir / "checkpoints"
             if checkpoints_dir.exists():
+                # If no checkpoint_step specified, try to get best from evaluation
+                if checkpoint_step is None:
+                    eval_file = exp_dir / "checkpoint_evaluation.json"
+                    if eval_file.exists():
+                        try:
+                            with open(eval_file) as f:
+                                eval_data = json.load(f)
+                            if "best_checkpoint" in eval_data:
+                                checkpoint_step = eval_data["best_checkpoint"]["step"]
+                                print(f"Using best checkpoint from evaluation: step {checkpoint_step}")
+                        except (json.JSONDecodeError, KeyError) as e:
+                            print(f"Warning: Could not read best checkpoint from evaluation: {e}")
+
                 if checkpoint_step:
                     # Look for specific checkpoint
                     checkpoint = checkpoints_dir / f"checkpoint_step_{checkpoint_step}.zip"
@@ -91,6 +107,7 @@ class Controller(BaseController):
         self,
         model_path=None,
         experiment_name=None,
+        checkpoint_step=None,
         smoothing_factor=None,
         max_action_change=None,
     ):
@@ -102,6 +119,8 @@ class Controller(BaseController):
                        If None, will auto-discover from experiment_name or find latest.
             experiment_name: Optional experiment name to load.
                            If None, loads latest experiment with checkpoints.
+            checkpoint_step: Optional specific checkpoint step number.
+                           If None, uses latest checkpoint.
             smoothing_factor: Optional smoothing factor override (0.0-1.0).
                             If None, uses SACController default (0.95).
             max_action_change: Optional max action change per timestep (rate limiting).
@@ -116,7 +135,7 @@ class Controller(BaseController):
 
         # Discover model path if not provided
         if model_path is None:
-            discovered_path = find_experiment_checkpoint(sac_drive_path, experiment_name)
+            discovered_path = find_experiment_checkpoint(sac_drive_path, experiment_name, checkpoint_step)
             if discovered_path is None:
                 if experiment_name:
                     raise FileNotFoundError(

@@ -107,6 +107,7 @@ if __name__ == "__main__":
   parser.add_argument("--test_controller", default='pid', choices=available_controllers)
   parser.add_argument("--baseline_controller", default='pid', choices=available_controllers)
   parser.add_argument("--sac_model", type=str, help="SAC model name for sac controller")
+  parser.add_argument("--checkpoint_step", type=int, help="Specific checkpoint step to use (default: latest)")
   args = parser.parse_args()
 
   data_path = Path(args.data_path)
@@ -117,8 +118,8 @@ if __name__ == "__main__":
   files = sorted(data_path.iterdir())[:args.num_segs]
   print("Running rollouts for visualizations...")
   for d, data_file in enumerate(tqdm(files[:SAMPLE_ROLLOUTS], total=SAMPLE_ROLLOUTS)):
-    test_cost, test_target_lataccel, test_current_lataccel = run_rollout(data_file, args.test_controller, args.model_path, debug=False, sac_model=args.sac_model)
-    baseline_cost, baseline_target_lataccel, baseline_current_lataccel = run_rollout(data_file, args.baseline_controller, args.model_path, debug=False, sac_model=args.sac_model)
+    test_cost, test_target_lataccel, test_current_lataccel = run_rollout(data_file, args.test_controller, args.model_path, debug=False, sac_model=args.sac_model, checkpoint_step=args.checkpoint_step)
+    baseline_cost, baseline_target_lataccel, baseline_current_lataccel = run_rollout(data_file, args.baseline_controller, args.model_path, debug=False, sac_model=args.sac_model, checkpoint_step=args.checkpoint_step)
     sample_rollouts.append({
       'seg': data_file.stem,
       'test_controller': args.test_controller,
@@ -133,7 +134,7 @@ if __name__ == "__main__":
 
   for controller_cat, controller_type in [('baseline', args.baseline_controller), ('test', args.test_controller)]:
     print(f"Running batch rollouts => {controller_cat} controller: {controller_type}")
-    rollout_partial = partial(run_rollout, controller_type=controller_type, model_path=args.model_path, debug=False, sac_model=args.sac_model)
+    rollout_partial = partial(run_rollout, controller_type=controller_type, model_path=args.model_path, debug=False, sac_model=args.sac_model, checkpoint_step=args.checkpoint_step)
     results = process_map(rollout_partial, files[SAMPLE_ROLLOUTS:], max_workers=16, chunksize=10)
     costs += [{'controller': controller_cat, **result[0]} for result in results]
 
