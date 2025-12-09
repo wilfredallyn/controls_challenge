@@ -57,13 +57,13 @@ class Controller(BaseController):
         checkpoints_dir = experiments_dir / "checkpoints"
 
         if checkpoint_step is not None:
-            model_path = checkpoints_dir / f"model_step_{checkpoint_step}.zip"
+            model_path = checkpoints_dir / f"checkpoint_step_{checkpoint_step}.zip"
         else:
             # Try final_model first, then latest checkpoint
             model_path = checkpoints_dir / "final_model.zip"
             if not model_path.exists():
                 # Find latest checkpoint
-                checkpoints = sorted(checkpoints_dir.glob("model_step_*.zip"))
+                checkpoints = sorted(checkpoints_dir.glob("checkpoint_step_*.zip"))
                 if checkpoints:
                     model_path = checkpoints[-1]
 
