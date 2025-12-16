@@ -45,33 +45,44 @@ class Controller(BaseController):
         """Initialize the SAC controller.
 
         Args:
-            experiment_name: Name of the experiment directory under experiments/.
+            experiment_name: Name of the experiment directory under experiments/,
+                or "current" to use the promoted model.
             checkpoint_step: Specific checkpoint step to load. If None, loads
                 final_model.zip or the latest checkpoint.
             observation_history: History length for state processor.
             use_future_plan: Whether to include future plan in observations.
             future_plan_horizon: Number of future timesteps in observation.
         """
-        # Find model checkpoint
-        experiments_dir = PROJECT_ROOT / "experiments" / experiment_name
-        checkpoints_dir = experiments_dir / "checkpoints"
-
-        if checkpoint_step is not None:
-            model_path = checkpoints_dir / f"checkpoint_step_{checkpoint_step}.zip"
-        else:
-            # Try final_model first, then latest checkpoint
-            model_path = checkpoints_dir / "final_model.zip"
+        # Handle "current" alias - use promoted model
+        if experiment_name == "current":
+            model_path = PROJECT_ROOT / "models" / "current"
             if not model_path.exists():
-                # Find latest checkpoint
-                checkpoints = sorted(checkpoints_dir.glob("checkpoint_step_*.zip"))
-                if checkpoints:
-                    model_path = checkpoints[-1]
+                raise FileNotFoundError(
+                    "No promoted model. Run 'sac registry promote' first."
+                )
+            # Resolve symlink to actual path
+            model_path = model_path.resolve()
+        else:
+            # Find model checkpoint from experiment directory
+            experiments_dir = PROJECT_ROOT / "experiments" / experiment_name
+            checkpoints_dir = experiments_dir / "checkpoints"
 
-        if not model_path.exists():
-            raise FileNotFoundError(
-                f"No model found for experiment '{experiment_name}'. "
-                f"Checked: {model_path}"
-            )
+            if checkpoint_step is not None:
+                model_path = checkpoints_dir / f"checkpoint_step_{checkpoint_step}.zip"
+            else:
+                # Try final_model first, then latest checkpoint
+                model_path = checkpoints_dir / "final_model.zip"
+                if not model_path.exists():
+                    # Find latest checkpoint
+                    checkpoints = sorted(checkpoints_dir.glob("checkpoint_step_*.zip"))
+                    if checkpoints:
+                        model_path = checkpoints[-1]
+
+            if not model_path.exists():
+                raise FileNotFoundError(
+                    f"No model found for experiment '{experiment_name}'. "
+                    f"Checked: {model_path}"
+                )
 
         # Load model
         self.model = SAC.load(model_path)
