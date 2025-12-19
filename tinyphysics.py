@@ -221,8 +221,8 @@ def get_available_controllers():
 def run_rollout(data_path, controller_type, model_path, debug=False, sac_model=None, checkpoint_step=None, detailed_metrics=False):
   tinyphysicsmodel = TinyPhysicsModel(model_path, debug=debug)
 
-  # Pass sac_model parameter to SAC controller if provided
-  if controller_type == 'sac' and sac_model is not None:
+  # Pass sac_model parameter to SAC/RecurrentPPO controller if provided
+  if controller_type in ('sac', 'recurrent_ppo') and sac_model is not None:
     controller = importlib.import_module(f'controllers.{controller_type}').Controller(experiment_name=sac_model, checkpoint_step=checkpoint_step)
   else:
     controller = importlib.import_module(f'controllers.{controller_type}').Controller()
