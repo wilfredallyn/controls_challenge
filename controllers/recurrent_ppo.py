@@ -43,9 +43,6 @@ class Controller(BaseController):
         self,
         experiment_name: str = "baseline",
         checkpoint_step: int | None = None,
-        observation_history: int = 20,
-        use_future_plan: bool = True,
-        future_plan_horizon: int = 50,
     ):
         """Initialize the RecurrentPPO controller.
 
@@ -54,9 +51,10 @@ class Controller(BaseController):
                 or "current" to use the promoted model.
             checkpoint_step: Specific checkpoint step to load. If None, loads
                 final_model.zip or the latest checkpoint.
-            observation_history: History length for state processor.
-            use_future_plan: Whether to include future plan in observations.
-            future_plan_horizon: Number of future timesteps in observation.
+
+        Note:
+            State processor configuration is loaded from the experiment's
+            config.yaml to ensure consistency with training.
         """
         # Handle "current" alias - use promoted model
         if experiment_name == "current":
@@ -67,6 +65,7 @@ class Controller(BaseController):
                 )
             # Resolve symlink to actual path
             model_path = model_path.resolve()
+            experiments_dir = model_path.parent.parent
         else:
             # Find model checkpoint from experiment directory
             experiments_dir = PROJECT_ROOT / "experiments" / experiment_name
@@ -92,11 +91,28 @@ class Controller(BaseController):
         # Load RecurrentPPO model
         self.model = RecurrentPPO.load(model_path)
 
-        # Initialize state processor with same config as training
+        # Load state processor config from experiment's config.yaml
+        config_path = experiments_dir / "config.yaml"
+        observation_history = 20
+        use_future_plan = True
+        future_plan_horizon = 50
+        future_plan_mode = "raw"
+
+        if config_path.exists():
+            from sac.config import load_config
+
+            config = load_config(config_path)
+            observation_history = config.environment.observation_history
+            use_future_plan = config.environment.use_future_plan
+            future_plan_horizon = config.environment.future_plan_horizon
+            future_plan_mode = config.environment.future_plan_mode
+
+        # Initialize state processor with config from training
         self.state_processor = StateProcessor(
             history_length=observation_history,
             use_future_plan=use_future_plan,
             future_plan_horizon=future_plan_horizon,
+            future_plan_mode=future_plan_mode,
         )
 
         # Track last action for state processor
