@@ -99,6 +99,11 @@ def create_report(test, baseline, sample_rollouts, costs, num_segs):
 
 
 if __name__ == "__main__":
+  # Use 'spawn' instead of 'fork' to avoid deadlocks with CUDA/GPU-threaded controllers
+  # (fork + multi-threading causes deadlocks when loading PyTorch/TensorFlow in children)
+  import multiprocessing
+  multiprocessing.set_start_method('spawn', force=True)
+
   available_controllers = get_available_controllers()
   parser = argparse.ArgumentParser()
   parser.add_argument("--model_path", type=str, required=True)
